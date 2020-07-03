@@ -5,7 +5,23 @@
 *  Author: m.fathy
 */
 
-/* include OS headers */#include "FreeRTOS.h"#include "task.h"#include "queue.h"#include "semphr.h"/* include Our Drivers */#include "board.h"#include "UART.h"/* Proto. */void T_Low(void* pvData);void T_med(void* pvData);void T_High(void* pvData);void system_init(void);/* OS Services Decl.*/xSemaphoreHandle bsBtnPressed;int main(void){	/* Init Pr. */	system_init();	/* OS Services Create and Init.*/	bsBtnPressed=xSemaphoreCreateMutex();	//vSemaphoreCreateBinary(bsBtnPressed,1);	/* Tasks Creat. */	xTaskCreate(T_Low,"T_Low",100,NULL,1,NULL);	/* Start OS or Sched. */	vTaskStartScheduler();}void T_Low(void* pvData){	/* recData is a local or temp message */	while(1)	{		Led_On();		vTaskDelay(2000);		Led_Off();		vTaskDelay(2000);		xSemaphoreTake(bsBtnPressed,portMAX_DELAY);		xTaskCreate(T_High,"T_High",100,NULL,3,NULL);		xTaskCreate(T_med,"T_med",100,NULL,2,NULL);		xSemaphoreGive(bsBtnPressed);	}}void T_High(void* pvData){	while(1)	{		Led_On();		_delay_ms(500);		Led_Off();		_delay_ms(500);		/* xSemaphoreTake return true is the semaphore is available		 * and here in the beginning it's return 0 cz T_Low have the semaphore		 */		if (xSemaphoreTake(bsBtnPressed,portMAX_DELAY))
-		{
-			while(1);
-		}		vTaskDelay(5);	}}void T_med(void* pvData){	while(1)	{		Led_On();		_delay_ms(7000);		Led_Off();		vTaskDelay(7000);	}}void system_init(void){	Led_Init();	//Uart_init(Uart_0,9600);	//Uart_sendstr(Uart_0,"Started ...\r\n");}
+/* include OS headers */#include "FreeRTOS.h"#include "task.h"#include "queue.h"#include "semphr.h"#include "event_groups.h"#include "ADC.h"#include "LCD.h"/* include Our Drivers */#include "board.h"#include "UART.h"/* Proto. */void T_Temp(void* pvData);void T_Alarm(void* pvData);void system_init(void);void INT0_Init(void);
+void interr_handle(void);#define E_Alarm (1<<0)EventGroupHandle_t   egEvent;EventBits_t          ebValues;INT8U res=0;void main(void){	system_init();	LCD_displayString("Welcome To RTOS");
+	LCD_displayStringRowColumn(1,0,"simple project:2");	_delay_ms(2000);	LCD_clearScreen();	egEvent=xEventGroupCreate();	xTaskCreate(T_Temp,"T_Temp",100,NULL,1,NULL);	xTaskCreate(T_Alarm,"T_Alarm",100,NULL,2,NULL);	vTaskStartScheduler();}void INT0_Init(void)
+{
+	SREG  &= ~(1<<7);                   // Disable interrupts by clearing I-bit
+	DDRD  &= (~(1<<PD2));               // Configure INT0/PD2 as input pin
+	GICR  |= (1<<INT0);                 // Enable external interrupt pin INT0
+	MCUCR |= (1<<ISC00) | (1<<ISC01);   // Trigger INT0 with the raising edge
+	SREG  |= (1<<7);                    // Enable interrupts by setting I-bit
+}void T_Temp(void* pvData){	while(1){		res=(ADC_Read(0)*150UL/1023);		LCD_displayStringRowColumn(0,0,"temperature : ");		LCD_intgerToString(res);		if (res >=50)		{			/* fire */			xEventGroupSetBits(egEvent,E_Alarm);		}		else if(res <50)		{			xEventGroupClearBits(egEvent,E_Alarm);		}	}}void T_Alarm(void* pvData){	while(1){				ebValues = xEventGroupWaitBits(egEvent,		(E_Alarm),		0, 		0, 		portMAX_DELAY);		if(ebValues&E_Alarm){			Leds_Toggle();			BUz_Toggle();			vTaskDelay(1000);			Leds_Toggle();			BUz_Toggle();			vTaskDelay(1000);		}	}}void system_init(void){	Leds_Init();	BUz_Init();	ADC_Init();	LCD_init();	INT0_Init();}
+
+void interr_handle(void){	LCD_clearScreen();	LCD_displayStringRowColumn(0,0,"Thx for watching");	_delay_ms(1000);	LCD_displayStringRowColumn(1,0,"   while(1).....");	while(1);}
+ISR(INT0_vect)
+{
+	interr_handle();
+}
+
+
+
+
